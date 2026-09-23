@@ -1,126 +1,105 @@
+import { useEffect, useMemo, useState } from "react";
 import "./styles.css";
-
-const project = {
-  "sourceNo": 7,
-  "id": "hxyfront-62012",
-  "port": 62012,
-  "title": "纺织染整小样管理",
-  "domain": "纺织染整",
-  "prompt": "我需要一个纺织染整实验室的小样管理前端系统，可以记录面料成分、克重、染料配方、浴比、温度曲线、保温时间、后整理方式、色差值和评审结果。页面需要有小样批次列表、配方比例展示、Lab色差对比、工艺曲线摘要和按客户订单筛选。",
-  "palette": [
-    "#be123c",
-    "#4f46e5",
-    "#16a34a"
-  ],
-  "metrics": [
-    "小样批次",
-    "色差超限",
-    "客户订单",
-    "通过率"
-  ],
-  "filters": [
-    "棉",
-    "涤纶",
-    "锦纶",
-    "混纺"
-  ],
-  "fields": [
-    "面料成分",
-    "克重",
-    "染料配方",
-    "浴比",
-    "保温时间",
-    "色差值"
-  ],
-  "records": [
-    [
-      "LAB-620A",
-      "棉府绸120g",
-      "ΔE 0.84",
-      "评审通过"
-    ],
-    [
-      "LAB-621C",
-      "涤纶针织",
-      "升温曲线偏快",
-      "待复染"
-    ],
-    [
-      "LAB-624B",
-      "混纺斜纹",
-      "后整理柔软剂2%",
-      "客户确认中"
-    ]
-  ]
-};
+import { useReleaseBoard } from "./components/useReleaseBoard";
+import { OrderList } from "./components/OrderList";
+import { OrderDetail } from "./components/OrderDetail";
+import { classifyOrder } from "./domain/releaseRules";
 
 function App() {
+  const board = useReleaseBoard();
+  const [selectedId, setSelectedId] = useState<string | null>(
+    board.orders[0]?.id ?? null
+  );
+  const [detailNotice, setDetailNotice] = useState<{
+    id: number;
+    tone: "error" | "warn";
+    text: string;
+  } | null>(null);
+
+  const selectedOrder = useMemo(
+    () => board.orders.find((o) => o.id === selectedId) ?? null,
+    [board.orders, selectedId]
+  );
+
+  const processHistory = useMemo(
+    () => (selectedOrder ? board.getProcessHistory(selectedOrder.id) : []),
+    // 订单或台账变化后重新取版本存档
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [selectedId, board.orders]
+  );
+
+  useEffect(() => {
+    if (detailNotice) {
+      const t = setTimeout(() => setDetailNotice(null), 5000);
+      return () => clearTimeout(t);
+    }
+  }, [detailNotice]);
+
+  const counts = useMemo(() => {
+    const c = { 有效放行: 0, 待重评: 0, 缺样品批次: 0 } as Record<string, number>;
+    for (const o of board.orders) c[classifyOrder(o, board.releases)] += 1;
+    return c;
+  }, [board.orders, board.releases]);
+
   return (
     <main className="app">
-      <section className="hero">
-        <p>{project.id} · 源提示词{project.sourceNo} · Port {project.port}</p>
-        <h1>{project.title}</h1>
-        <span>{project.prompt}</span>
-      </section>
+      <header className="topbar">
+        <div>
+          <p className="eyebrow">hxyfront-62012 · 纺织染整小样台账</p>
+          <h1>订单投产放行</h1>
+          <p className="subtitle">
+            放行绑定订单与当前工艺；色差 ≤ 0.8、后整理一致、保温达标，复核人不同于工艺调整人。
+            工艺（配方 / 后整理 / 保温）变更后原放行自动失效，旧版留档可查。
+          </p>
+        </div>
+        <div className="topbar-stats">
+          <div className="stat stat-ok"><b>{counts["有效放行"]}</b><span>有效放行</span></div>
+          <div className="stat stat-warn"><b>{counts["待重评"]}</b><span>待重评</span></div>
+          <div className="stat stat-bad"><b>{counts["缺样品批次"]}</b><span>缺样品批次</span></div>
+          <button className="btn-link" onClick={board.resetDemo}>恢复演示数据</button>
+        </div>
+      </header>
 
-      <section className="metrics">
-        {project.metrics.map((metric: string, index: number) => (
-          <article key={metric}>
-            <small>{metric}</small>
-            <strong>{[28, 6, 14, 91][index] ?? 10}</strong>
-          </article>
-        ))}
-      </section>
+      {board.banner && (
+        <div className={`banner banner-${board.banner.tone}`}>
+          <span>{board.banner.tone === "error" ? "✕" : board.banner.tone === "warn" ? "!" : "✓"}</span>
+          <p>{board.banner.text}</p>
+          <button onClick={() => board.setBanner(null)}>×</button>
+        </div>
+      )}
 
-      <section className="workspace">
-        <aside className="panel">
-          <h2>{project.domain}分类</h2>
-          <div className="chips">
-            {project.filters.map((item: string) => (
-              <button key={item}>{item}</button>
-            ))}
-          </div>
-        </aside>
-
-        <section className="panel form-panel">
-          <div className="heading">
-            <div>
-              <p>专业字段</p>
-              <h2>新增记录</h2>
+      <div className="layout">
+        <OrderList
+          orders={board.orders}
+          releases={board.releases}
+          selectedId={selectedId}
+          onSelect={setSelectedId}
+        />
+        <section className="detail-pane">
+          {detailNotice && (
+            <div className={`banner banner-${detailNotice.tone} banner-inline`}>
+              <span>{detailNotice.tone === "error" ? "✕" : "!"}</span>
+              <p>{detailNotice.text}</p>
+              <button onClick={() => setDetailNotice(null)}>×</button>
             </div>
-            <button className="primary">保存记录</button>
-          </div>
-          <div className="field-grid">
-            {project.fields.map((field: string) => (
-              <label key={field}>
-                <span>{field}</span>
-                <input placeholder={"填写" + field} />
-              </label>
-            ))}
-          </div>
+          )}
+          {selectedOrder ? (
+            <OrderDetail
+              key={selectedOrder.id}
+              order={selectedOrder}
+              releases={board.releases}
+              processHistory={processHistory}
+              onSubmitRelease={board.submitRelease}
+              onAdjustProcess={board.adjustProcess}
+              onNotice={(text, tone) =>
+                setDetailNotice({ id: Date.now(), tone, text })
+              }
+            />
+          ) : (
+            <div className="panel empty-state">请选择左侧订单</div>
+          )}
         </section>
-      </section>
-
-      <section className="panel">
-        <div className="heading">
-          <div>
-            <p>近期记录</p>
-            <h2>工作台摘要</h2>
-          </div>
-          <button>导出CSV</button>
-        </div>
-        <div className="records">
-          {project.records.map((record: string[], index: number) => (
-            <article key={record.join("-")}>
-              <b>{String(index + 1).padStart(2, "0")}</b>
-              <div>
-                <h3>{record[0]}</h3>
-                <p>{record.slice(1).join(" · ")}</p>
-              </div>
-            </article>
-          ))}
-        </div>
-      </section>
+      </div>
     </main>
   );
 }
